@@ -66,12 +66,92 @@
   returns: The solved sodoku board or an empty list (a null) if it's a failure
   parameters: sodoku, the board as a list of 81 cells, and logfile, the string for where we log to.
 |#
-(defun solve-sodoku (sodoku logfile)
+(defun solve-sodoku (origSodoku logfile)
+  (setq sodoku (duplicate-sodoku origSodoku))
   (log-sodoku logfile "BEGIN: attempt to solve the following sodoku:" sodoku)
 
+  (loop
+    ; Validity check to start. If we fail, report it and return null
 
+    ; Find operation to see if we can deduce a value to add
+    (setq found (find-next-sodoku sodoku logfile))
+    (print found)
 
+    (when (char= #\F (car found))
+      ; The sodoku is filled and legal, so return it
+      (return)
+    )
+    (when (char= #\X (car found))
+      ; The sodoku is invalid, so return null
+      (setq sodoku ())
+      (return)
+    )
+    (when (and (char>= #\1 (car found)) (char<= #\9 (car found)))
+      ; We found something to add, so... Add it of course!
+      (setq val (car found))
+      (setq index (car (reverse found)))
+      (setf (cell-value (nth index sodoku)) val)
+      (unflag-sodoku sodoku index logfile)
+    )
+    (when (char= #\G (car found))
+      ; Then we need to guess. The good news about that, though, is that each time we guess, there are two possibilities:
+      ; The first is that the guess works and the sodoku comes back solved, so we just return it, and the other
+      ; is that the guess failed. If it failed, we remove it from the possibilities and try again, until we run out
+      ; of possibilities. The other good news is that we only have to try at most one square, since if we ran out
+      ; of guesses for it, we would discover that we have an invalid sodoku and can return null.
+      ; So find the first square that hasn't been filled, and start guessing!
+      ; Other bonus: This ensures we have an at most 81 deep recursion, so no risk of infinite loop unless there's a bug
 
+      ; NOTE: I might be able to improve this algorithm by, after doing a guess,
+      ; trying again, since I've eliminated one from the list of possibilities. But this "Null or done"
+      ; approach is easier for now.
+
+      ; First, find the square we're going to be guessing with. That's the first square that
+      ; doesn't yet have a value. We should always be able to find one because find-next-sodoku would
+      ; have made us return, but just in case we can't find one,
+      ; this loop results in index 81.
+      (print "entering guess")
+      (setq index 0)
+      (loop
+        (when (= index 81) (return))
+        (when (char= #\_ (cell-value (nth index sodoku))) (return))
+        (setq index (+ index 1))
+      )
+      (print (concatenate 'string "index = " (write-to-string index)))
+      ; Next, if index is not 81, unflag and fill and grab its potential list,
+      ;       then recursively call until we get a sodoku or run out.
+      (when (< index 81)
+        (setq potential (cell-potential (nth index sodoku)))
+        (setq guessSodoku ())
+        (print potential)
+        (loop
+          (when (= 0 (length potential)) (return))
+          (log-sodoku logfile (concatenate 'string "Guessing using cell " (write-to-string index) ". Potential values: " (write-to-string potential)) sodoku)
+          (setq guess (car potential))
+          (setf (cell-potential (nth index sodoku)) (cdr potential))
+          (setf (cell-value (nth index sodoku)) guess)
+          (setq guessSodoku (solve-sodoku sodoku logfile))
+          (when (/= 0 (length guessSodoku))
+            ; Then the guess succeeded!
+            (log-sodoku logfile (concatenate 'string "Guessing value " (write-to-string guess) " for cell " (write-to-string index) " was successful, returning:") sodoku)
+            (return)
+          )
+          (when (= 0 (length potential))
+            ; Then it failed, and we have no others
+            (log-sodoku logfile (concatenate 'string "Guessing value " (write-to-string guess) " for cell " (write-to-string index) " failed. No other potential values, so returning null.") sodoku)
+          )
+          (when (/= 0 (length potential))
+            ; Then it failed, but we have other guesses to try
+            (log-sodoku logfile (concatenate 'string "Guessing value " (write-to-string guess) " for cell " (write-to-string index) " failed. Trying next potential value.") sodoku)
+          )
+        ) ; now guessSodoku either holds the solution or null
+        (setq sodoku guessSodoku)
+      )
+      ; Finally, return our result, regardless of if its a sodoku or null
+      (return)
+    ) ; End guess
+
+  ) ; End sodoku solution loop. Sodoku is now either solved or null
   sodoku
 )
 
@@ -81,15 +161,69 @@
            reduction tactics to find a cell that can be filled with a value.
   pre-conditions: The flags of the sodoku are 0 if they need to be checked, 1s can be skipped over
   post-conditions: None, nothing is modified by this function
-  returns: A 2 element list, holding (value index). If value is 0, it's because we didn't find one, so we need to guess.
+  returns: A 2 element list, holding (value index).
+           If value is #\G, it's because we didn't find one, so we need to guess.
+           If value is #\X, it's because we found a cell where nothing can go, so this board is illegal
+           If value is #\F, it's because the board is full, so we're done!
   parameters: sodoku, the list of 81 cells, and logfile, where we write things to.
   Reduction Tactics currently in use:
     -- None, always suggests guessing.
 |#
 (defun find-next-sodoku (sodoku logfile)
-  (setq found (list #\0 0))
-  (log-sodoku logfile "Unable to deduce another solution in the sodoku:" sodoku)
+  (setq found (list #\G 0))
+  (setq filledCount 0)
+  (setq i 0)
+  (loop
+    ; Stop when we've seen all the values. Hopefully we'll stop sooner, having a value to fill.
+    (when (= i 81) (return))
+    ; If this cell has a value, increment filledCount
+    (when (char\= #\_ (cell-value (nth i sodoku))) (setq filledCount (+ 1 filledCount)))
+    ; If this cell is not flagged, do the reductions to try to find something to fill
+    (when (= 0 (cell-flag (nth i sodoku)))
+      ; do stuff if possible TODO
+      ; ideally setq found (list val i) and return
+    )
+    (setq i (+ i 1))
+  )
+  (when (char= #\G (car found))
+    (log-sodoku logfile "Unable to deduce another solution in the sodoku:" sodoku)
+  )
+  (when (char= #\F (car found))
+    (log-sodoku logfile "The following sodoku appears full:" sodoku)
+  )
+  (when (char= #\X (car found))
+    (log-sodoku logfile (concatenate 'string "The following sodoku appears invalid because no value can be located in cell " (write-to-string (car (reverse found)))) sodoku)
+  )
+  (when (and (char>= #\1 (car found)) (char<= #\9 (car found)))
+    (log-sodoku logfile (concatenate 'string "Inserting the (val, index) pair " (write-to-string found) " to the sodoku:") sodoku)
+  )
   found
+)
+
+#|
+  duplicate-sodoku function
+  purpose: The normal duplicate function doesn't work because our sodoku has a circular pointer
+           So this one will build a new sodoku and move in the values we want to preserve, and return
+           the new sodoku.
+  pre-conditions: Sodoku is populated
+  post-conditions: The returned sodoku is completely disjoint from the original one; modifying one won't touch the other
+  returns: A sodoku board.
+  Parameters: origSodoku, the sodoku to duplicate
+|#
+(defun duplicate-sodoku (origSodoku)
+  ; first, get a blank sodoku
+  (setq sodoku (build-sodoku))
+  (setq i 0)
+  (loop
+    (when (= i 81) (return))
+    ; The values we need to duplicate are value, potential and flag
+    (setf (cell-value (nth i sodoku)) (cell-value (nth i origSodoku)))
+    (setf (cell-flag  (nth i sodoku)) (cell-flag  (nth i origSodoku)))
+    ; We need to duplicate the potential list instead of just assigning it so that it doesn't get shared
+    (setf (cell-potential (nth i sodoku)) (copy-list (cell-potential (nth i origSodoku))))
+    (setq i (+ i 1))
+  )
+  sodoku
 )
 
 #|
@@ -317,7 +451,7 @@
         ; Translate 0 to _; this gets all 0s and _ to the same character _.
         (when (char= #\0 c) (setq c #\_))
         (setf (cell-value (nth i sodoku)) c)
-        (setf (cell-potential (nth i sodoku)) () ) ; set potential list to null, simplifies stuff later when we check lengths
+        (when (char/= #\_ c) (setf (cell-potential (nth i sodoku)) () )) ; set potential list to null, simplifies stuff later when we check lengths
         (setq i (+ i 1))
       )
     )
@@ -325,7 +459,24 @@
   sodoku
 )
 
-#| Log function
+#| Unflag sodoku function TODO
+   purpose: Whenever there's a change in the sodoku, anything in its
+            row, column or box may have its potential list changed, so
+            we need to unflag all of those, that way they get checked
+            next time we look for a value to fill.
+   pre-conditions: Sodoku is populated
+   post-conditions: All cells in the row, column and box of cell at index will be unflagged
+   returns: sodoku, the new sodoku with the unflagged cells
+   parameters: sodoku, the sodoku we're copying to modify
+               index, the location of the cell we're unflagging
+               logfile, the logfile to write to
+|#
+(defun unflag-sodoku (sodoku index logfile)
+  
+  sodoku
+)
+
+#| Log sodoku function
    purpose: This function logs a string to the logfile, followed by a copy of the
             current sodoku state.
    pre-conditions: If logfile is null, this function will do nothing. Otherwise, the string and sodoku must be populated
@@ -366,7 +517,12 @@
 
 ; Check if the log flag is given
 (setq logfile ())
-(if (listen) (setq logfile (concatenate 'string filename ".log")))
+(when (listen)
+  (setq logfile (concatenate 'string filename ".log"))
+  (with-open-file (eraseLogfile logfile :direction :output)
+   (terpri eraseLogfile)
+  )
+)
 
 ; Get empty sodoku board
 (setq sodokuBoard (build-sodoku))
