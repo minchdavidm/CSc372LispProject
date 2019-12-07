@@ -91,12 +91,12 @@
       (setq sodoku ())
       (return)
     )
-    (when (and (char>= #\1 (car found)) (char<= #\9 (car found)))
+    (when (and (char<= #\1 (car found)) (char>= #\9 (car found)))
       ; We found something to add, so... Add it of course!
       (setq val (car found))
       (setq index (car (reverse found)))
       (setf (cell-value (nth index sodoku)) val)
-      (setq sodoku (unflag-sodoku sodoku index logfile))
+      ;(setq sodoku (unflag-sodoku sodoku index logfile))
     )
     (when (char= #\G (car found))
       ; Then we need to guess. The good news about that, though, is that each time we guess, there are two possibilities:
@@ -206,8 +206,46 @@
     (when (char/= #\_ (cell-value (nth i sodoku))) (setq filledCount (+ 1 filledCount)))
     ; If this cell is not flagged and cell-value is _, do the reductions to try to find something to fill
     (when (and (= 0 (cell-flag (nth i sodoku))) (char= #\_ (cell-value (nth i sodoku))))
-      ; do stuff if possible TODO
-      ; ideally setq found (list val i) and return
+      ; For this cell, go over the possibilities list. For each value, look to see if it
+      ; is in the row, column or box where this cell resides. If it does, remove it from possibilities.
+      ; After doing that, if possibilities has length 1, then setq found (list val i) and return
+
+      ; Start at the end of the list, that way we can work down to index 1 and remove as we go along.
+      (setq e (length (cell-potential (nth i sodoku))))
+      (setq findRow (cell-row (nth i sodoku)))
+      (setq findCol (cell-col (nth i sodoku)))
+      (setq findBox (cell-box (nth i sodoku)))
+      (loop
+        (when (= e 0) (return))
+        (setq e (- e 1))
+        (setq checkChar (nth e (cell-potential (nth i sodoku))))
+        (setq f 0)
+        (loop
+          (when (= f 9) (return))
+          (when (char= checkChar (cell-value (nth f findRow)))
+            (log-sodoku logfile (concatenate 'string "Reducing potential values for cell " (write-to-string i) ". Removing " (write-to-string checkChar) " from list " (write-to-string (cell-potential (nth i sodoku))) " because it is present in the same row.") sodoku)
+            (setf (cell-potential (nth i sodoku)) (remove-nth (cell-potential (nth i sodoku)) e))
+            (return)
+          )
+          (when (char= checkChar (cell-value (nth f findCol)))
+            (log-sodoku logfile (concatenate 'string "Reducing potential values for cell " (write-to-string i) ". Removing " (write-to-string checkChar) " from list " (write-to-string (cell-potential (nth i sodoku))) " because it is present in the same column.") sodoku)
+            (setf (cell-potential (nth i sodoku)) (remove-nth (cell-potential (nth i sodoku)) e))
+            (return)
+          )
+          (when (char= checkChar (cell-value (nth f findBox)))
+            (log-sodoku logfile (concatenate 'string "Reducing potential values for cell " (write-to-string i) ". Removing " (write-to-string checkChar) " from list " (write-to-string (cell-potential (nth i sodoku))) " because it is present in the same box.") sodoku)
+            (setf (cell-potential (nth i sodoku)) (remove-nth (cell-potential (nth i sodoku)) e))
+            (return)
+          )
+          (setq f (+ f 1))
+        )
+      ) ; end loop over rows/cols/boxes
+      ;Now check if there's just one, because if there is, we can insert it without guessing.
+      (when (= 1 (length (cell-potential (nth i sodoku))))
+        (setq found (list (nth 0 (cell-potential (nth i sodoku))) i))
+        (return)
+      )
+
     )
     (setq i (+ i 1))
   )
@@ -226,6 +264,27 @@
     (log-sodoku logfile (concatenate 'string "Inserting the (val, index) pair " (write-to-string found) " to the sodoku:") sodoku)
   )
   found
+)
+
+#|
+  remove-nth function
+  purpose: This function builds a new list identical to the original but without one element.
+  pre-conditions: index < length(list)
+  post-conditions: None
+  returns: List, the list with one fewer element
+  parameters: l, the list to remove from
+              n, the index to remove
+|#
+
+(defun remove-nth (l n)
+  (setq reducedList ())
+  (setq a 0)
+  (loop
+    (if (= a (length l)) (return))
+    (if (/= n a) (setq reducedList (append reducedList (list (nth a l)))))
+    (setq a (+ 1 a))
+  )
+  reducedList
 )
 
 #|
@@ -562,16 +621,16 @@
 (defun unflag-sodoku (origSodoku index logfile)
   (setq sodoku (duplicate-sodoku origSodoku))
 
-  (setq row (cell-row (nth index sodoku)))
-  (setq col (cell-col (nth index sodoku)))
-  (setq box (cell-box (nth index sodoku)))
+  (setq rowy (cell-row (nth index sodoku)))
+  (setq coly (cell-col (nth index sodoku)))
+  (setq boxy (cell-box (nth index sodoku)))
 
   (setq j 0)
   (loop
     (when (= j 9) (return))
-    (setf (cell-flag (nth j row)) 0)
-    (setf (cell-flag (nth j col)) 0)
-    (setf (cell-flag (nth j box)) 0)
+    (setf (cell-flag (nth j rowy)) 0)
+    (setf (cell-flag (nth j coly)) 0)
+    (setf (cell-flag (nth j boxy)) 0)
   )
 
   sodoku
@@ -595,11 +654,11 @@
       (terpri outputStream)
       ; Now output the sodoku if it's not null
       (when (/= 0 (length sodoku))
-        (setq i 0) ; count so that we can put newlines in the right place
+        (setq logi 0) ; count so that we can put newlines in the right place
         (dolist (cell sodoku)
           (write-char (cell-value cell) outputStream)
-          (if (= (mod i 9) 8) (write-char #\Linefeed outputStream) (write-char #\SPACE outputStream))
-          (setq i (+ i 1))
+          (if (= (mod logi 9) 8) (write-char #\Linefeed outputStream) (write-char #\SPACE outputStream))
+          (setq logi (+ logi 1))
         )
         (terpri outputStream)
       ) ; finish outputting sodoku
