@@ -72,10 +72,15 @@
 
   (loop
     ; Validity check to start. If we fail, report it and return null
-
+    (setq check (check-if-valid-sodoku sodoku logfile))
+    (when (= 0 check)
+      ; Then we failed, we did something resulting in an illegal sodoku, return null
+      (setq sodoku ())
+      (return)
+    )
     ; Find operation to see if we can deduce a value to add
     (setq found (find-next-sodoku sodoku logfile))
-    (print found)
+    ;(print found)
 
     (when (char= #\F (car found))
       ; The sodoku is filled and legal, so return it
@@ -91,7 +96,7 @@
       (setq val (car found))
       (setq index (car (reverse found)))
       (setf (cell-value (nth index sodoku)) val)
-      (unflag-sodoku sodoku index logfile)
+      (setq sodoku (unflag-sodoku sodoku index logfile))
     )
     (when (char= #\G (car found))
       ; Then we need to guess. The good news about that, though, is that each time we guess, there are two possibilities:
@@ -110,27 +115,37 @@
       ; doesn't yet have a value. We should always be able to find one because find-next-sodoku would
       ; have made us return, but just in case we can't find one,
       ; this loop results in index 81.
-      (print "entering guess")
+      ;(print "entering guess")
       (setq index 0)
       (loop
         (when (= index 81) (return))
         (when (char= #\_ (cell-value (nth index sodoku))) (return))
         (setq index (+ index 1))
       )
-      (print (concatenate 'string "index = " (write-to-string index)))
+      ;(print (concatenate 'string "index = " (write-to-string index)))
       ; Next, if index is not 81, unflag and fill and grab its potential list,
       ;       then recursively call until we get a sodoku or run out.
       (when (< index 81)
         (setq potential (cell-potential (nth index sodoku)))
         (setq guessSodoku ())
-        (print potential)
+        ;(print potential)
         (loop
           (when (= 0 (length potential)) (return))
+          ;(print (concatenate 'string "Looping"))
           (log-sodoku logfile (concatenate 'string "Guessing using cell " (write-to-string index) ". Potential values: " (write-to-string potential)) sodoku)
           (setq guess (car potential))
-          (setf (cell-potential (nth index sodoku)) (cdr potential))
+          (setq potential (cdr potential))
+          ;(print (concatenate 'string "guess: " (write-to-string guess) ", potential: " (write-to-string potential)))
+          (setf (cell-potential (nth index sodoku)) potential)
           (setf (cell-value (nth index sodoku)) guess)
-          (setq guessSodoku (solve-sodoku sodoku logfile))
+          ;(print (concatenate 'string "Sodoku length pre-solution attempt: " (write-to-string (length sodoku))))
+          (let ((sodokux sodoku))
+            ;(print (concatenate 'string "Sodoku length in LET pre-solution attempt: " (write-to-string (length sodokux))))
+            (setq guessSodoku (solve-sodoku sodoku logfile))
+            ;(print (concatenate 'string "Sodoku length in LET post-solution attempt: " (write-to-string (length sodokux))))
+            (setq sodoku sodokux)
+          )
+          ;(print (concatenate 'string "Sodoku length post-solution attempt: " (write-to-string (length sodoku))))
           (when (/= 0 (length guessSodoku))
             ; Then the guess succeeded!
             (log-sodoku logfile (concatenate 'string "Guessing value " (write-to-string guess) " for cell " (write-to-string index) " was successful, returning:") sodoku)
@@ -152,6 +167,11 @@
     ) ; End guess
 
   ) ; End sodoku solution loop. Sodoku is now either solved or null
+  ;(print (concatenate 'string "origSodoku length before leaving function: " (write-to-string (length origSodoku))))
+  (when (= 0 (length sodoku))
+    ; Then it's null.
+    (log-sodoku logfile "Returning null sodoku." sodoku)
+  )
   sodoku
 )
 
@@ -224,6 +244,66 @@
     (setq i (+ i 1))
   )
   sodoku
+)
+
+#|
+  check if valid sodoku function
+  purpose: This function checks if a sodoku has any visible conflicts of two digits of
+           the same value in any row, column or box.
+           It tracks this by iterating over every cell, and if it has a value, checking if
+           that value is present more than once in the cell, row or box it belongs to.
+  pre-conditions: Sodoku is populated
+  post-conditions: None, nothing is modified by this function
+  returns: 1 if valid, 0 if there were any conflicts
+  parameters: Sodoku, the board we're checking
+              logfile, the place to write logs to
+|#
+
+(defun check-if-valid-sodoku (sodoku logfile)
+  ;(print "entering check if valid")
+  (setq retval 1)
+  (setq j 0) ; iterator
+  (loop
+    ; return if we hit the end of the list
+    (when (= j 81) (return))
+    ; return now if we failed
+    (when (= 0 retval) (return))
+
+    (setq val (cell-value (nth j sodoku)))
+    (when (char/= #\_ val)
+      ; If it's not blank, then compare it to the other row values
+      (setq row (cell-row (nth j sodoku)))
+      (setq col (cell-col (nth j sodoku)))
+      (setq box (cell-box (nth j sodoku)))
+      (setq k 0) ; iterator
+      (setq rowCount 0) ; Have separate counts so that we can
+      (setq colCount 0) ; tell exactly where we failed, but
+      (setq boxCount 0) ; check all at once.
+      (loop
+        (when (= k 9) (return))
+        (if (char= val (cell-value (nth k row))) (setq rowCount (+ rowCount 1)))
+        (if (char= val (cell-value (nth k col))) (setq colCount (+ colCount 1)))
+        (if (char= val (cell-value (nth k box))) (setq boxCount (+ boxCount 1)))
+        (setq k (+ k 1))
+      )
+      ; Interpret results
+      (when (> rowCount 1)
+        (log-sodoku logfile (concatenate 'string "Verification failure: Row " (write-to-string k) " has value " (write-to-string val) " repeated.") sodoku)
+        (setq retval 0)
+      )
+      (when (> colCount 1)
+        (log-sodoku logfile (concatenate 'string "Verification failure: Column " (write-to-string k) " has value " (write-to-string val) " repeated.") sodoku)
+        (setq retval 0)
+      )
+      (when (> boxCount 1)
+        (log-sodoku logfile (concatenate 'string "Verification failure: Box " (write-to-string k) " has value " (write-to-string val) " repeated.") sodoku)
+        (setq retval 0)
+      )
+    )
+    (setq j (+ j 1))
+  )
+  ;(print "leaving check if valid")
+  retval
 )
 
 #|
@@ -459,7 +539,7 @@
   sodoku
 )
 
-#| Unflag sodoku function TODO
+#| Unflag sodoku function
    purpose: Whenever there's a change in the sodoku, anything in its
             row, column or box may have its potential list changed, so
             we need to unflag all of those, that way they get checked
@@ -471,8 +551,21 @@
                index, the location of the cell we're unflagging
                logfile, the logfile to write to
 |#
-(defun unflag-sodoku (sodoku index logfile)
-  
+(defun unflag-sodoku (origSodoku index logfile)
+  (setq sodoku (duplicate-sodoku origSodoku))
+
+  (setq row (cell-row (nth index sodoku)))
+  (setq col (cell-col (nth index sodoku)))
+  (setq box (cell-box (nth index sodoku)))
+
+  (setq j 0)
+  (loop
+    (when (= j 9) (return))
+    (setf (cell-flag (nth j row)) 0)
+    (setf (cell-flag (nth j col)) 0)
+    (setf (cell-flag (nth j box)) 0)
+  )
+
   sodoku
 )
 
@@ -492,14 +585,16 @@
       (format outputStream text)
       (terpri outputStream)
       (terpri outputStream)
-      ; Now output the sodoku
-      (setq i 0) ; count so that we can put newlines in the right place
-      (dolist (cell sodoku)
-        (write-char (cell-value cell) outputStream)
-        (if (= (mod i 9) 8) (write-char #\Linefeed outputStream) (write-char #\SPACE outputStream))
-        (setq i (+ i 1))
-      )
-      (terpri outputStream)
+      ; Now output the sodoku if it's not null
+      (when (/= 0 (length sodoku))
+        (setq i 0) ; count so that we can put newlines in the right place
+        (dolist (cell sodoku)
+          (write-char (cell-value cell) outputStream)
+          (if (= (mod i 9) 8) (write-char #\Linefeed outputStream) (write-char #\SPACE outputStream))
+          (setq i (+ i 1))
+        )
+        (terpri outputStream)
+      ) ; finish outputting sodoku
     ) ; close logfile
   ) ; end when
 )
