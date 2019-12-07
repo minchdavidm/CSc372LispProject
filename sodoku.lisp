@@ -96,6 +96,7 @@
       (setq val (car found))
       (setq index (car (reverse found)))
       (setf (cell-value (nth index sodoku)) val)
+      (log-sodoku logfile (concatenate 'string "We've successfully deduced that " (write-to-string val) " belongs at index " (write-to-string index) ". The Sodoku now contains:") sodoku)
       ;(setq sodoku (unflag-sodoku sodoku index logfile))
     )
     (when (char= #\G (car found))
