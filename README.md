@@ -8,3 +8,5 @@ Software: GNU C 4.8.2
 Example invocations: 
 clisp rotn.lisp < input, where input contains the filename of the text to rotate and is followed by an integer of how many to rotate by.
 clisp sodoku.lisp < input, where input contains the filename of the source Sodoku file.
+
+The Sodoku puzzles were selected at random from a Sodoku database belonging to HP by pressing the "New Sodoku" option on my printer at varying difficulties.
